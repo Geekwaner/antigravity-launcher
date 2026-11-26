@@ -1,0 +1,111 @@
+name: Bug 报告
+description: 报告一个可复现的问题（启动失败、代理判定异常、界面问题等）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请先确认：
+
+        1. 已完全退出旧版 Antigravity 实例（环境变量无法事后注入）；
+        2. 已尝试最新 Release 或 `main` 分支代码；
+        3. **提交内容中的用户名、本机路径、代理地址与凭证均已脱敏**。
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: antigravity-version
+    attributes:
+      label: Antigravity 客户端版本
+      description: 客户端「关于」里的版本号，或安装包文件名
+      placeholder: "例如 1.2.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: 启动器运行方式
+      options:
+        - Release portable (.zip)
+        - Release standalone (.exe)
+        - 源码运行（AntigravityLauncher.bat / py -3 aglaunch.py）
+        - pip install .
+    validations:
+      required: true
+
+  - type: input
+    id: launcher-version
+    attributes:
+      label: 启动器版本
+      description: 界面标题或 `aglaunch --version` 的输出
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor-output
+    attributes:
+      label: 体检输出
+      description: 请粘贴 `aglaunch --doctor -v --json` 的输出（记得脱敏）
+      render: shell
+      placeholder: |
+        {
+          "client": "C:\\Program Files\\Antigravity\\Antigravity.exe",
+          "proxy": { "...": "..." },
+          ...
+        }
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 启动本地代理客户端（端口 7897）
+        2. 双击 AntigravityLauncher.exe
+        3. 点击「启动 Antigravity（注入代理）」
+        4. 出现……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: 期望行为 / 实际行为
+      placeholder: |
+        期望：三条通道全绿并能正常登录
+        实际：模型端点未通过，日志显示 TLS EOF
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 界面日志或额外信息（可选）
+      description: 界面右下角「运行日志」中可以复制的相关行；截图请先遮挡用户名
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 确认事项
+      options:
+        - label: 我已搜索过现有 Issue，确认不是重复问题
+          required: true
+        - label: 我已移除输出中的用户名、本机路径、代理地址与凭证
+          required: true

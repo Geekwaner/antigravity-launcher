@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile check
+        run: python -m compileall -q aglaunch.py aglauncher tests scripts
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+      - name: CLI smoke check
+        run: python aglaunch.py --help
+      - name: Verify wheel bundles icon assets
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python -m pip wheel . --no-deps -w build/wheel
+          python - <<'PY'
+          import glob, sys, zipfile
+          wheel = sorted(glob.glob("build/wheel/*.whl"))[-1]
+          names = set(zipfile.ZipFile(wheel).namelist())
+          missing = [n for n in ("aglauncher/assets/icon.ico", "aglauncher/assets/icon.png") if n not in names]
+          if missing:
+              sys.exit(f"wheel is missing icon assets: {missing}")
+          print(f"{wheel} bundles icon assets")
+          PY

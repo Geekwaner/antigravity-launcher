@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.python-version
+
+# 打包与测试产物
+build/
+dist/
+*.spec
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# 编辑器与本机文件
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log

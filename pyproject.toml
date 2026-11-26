@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antigravity-launcher"
+dynamic = ["version"]
+description = "Process-level proxy launcher for Google Antigravity desktop client and agy CLI"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Antigravity Launcher Contributors" }]
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["antigravity", "proxy", "launcher", "socks5", "http-proxy"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/Geekwaner/antigravity-launcher"
+Repository = "https://github.com/Geekwaner/antigravity-launcher"
+Issues = "https://github.com/Geekwaner/antigravity-launcher/issues"
+Changelog = "https://github.com/Geekwaner/antigravity-launcher/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+icon = ["pillow>=10.0"]
+
+[project.scripts]
+aglaunch = "aglauncher.cli:main"
+
+[project.gui-scripts]
+antigravity-launcher = "aglauncher.gui:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "aglauncher.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["aglauncher*"]
+
+[tool.setuptools.package-data]
+aglauncher = ["assets/*.ico", "assets/*.png"]
