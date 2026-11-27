@@ -5,6 +5,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import socket
 import struct
 import threading
@@ -13,6 +14,11 @@ from pathlib import Path
 from unittest import mock
 
 from aglauncher import cli, client, core, launcher, procs, proxy, store
+
+# 进程名在 Windows 带 .exe 后缀，macOS / Linux 不带，用例需与平台一致
+CLIENT_PROC, LS_PROC = (
+    ("Antigravity.exe", "language_server.exe") if os.name == "nt" else ("Antigravity", "language_server")
+)
 
 
 def make_client() -> client.Client:
@@ -134,11 +140,11 @@ class TestProxyParsingAndAuth(unittest.TestCase):
 class TestProcsAndTree(unittest.TestCase):
     def test_split_running_recognizes_own_and_descendant_ls(self) -> None:
         table = [
-            procs.ProcInfo(pid=100, ppid=1, name="Antigravity.exe", exe="C:/AG/Antigravity.exe", created=1000.0),
-            procs.ProcInfo(pid=101, ppid=100, name="language_server.exe", exe="C:/AG/ls.exe", created=1001.0),
-            procs.ProcInfo(pid=102, ppid=100, name="Antigravity.exe", exe="C:/AG/Antigravity.exe", created=1001.2),
-            procs.ProcInfo(pid=103, ppid=101, name="Antigravity.exe", exe="C:/AG/Antigravity.exe", created=1002.0),
-            procs.ProcInfo(pid=200, ppid=1, name="Antigravity.exe", exe="C:/AG/Antigravity.exe", created=2000.0),
+            procs.ProcInfo(pid=100, ppid=1, name=CLIENT_PROC, exe="C:/AG/Antigravity.exe", created=1000.0),
+            procs.ProcInfo(pid=101, ppid=100, name=LS_PROC, exe="C:/AG/ls.exe", created=1001.0),
+            procs.ProcInfo(pid=102, ppid=100, name=CLIENT_PROC, exe="C:/AG/Antigravity.exe", created=1001.2),
+            procs.ProcInfo(pid=103, ppid=101, name=CLIENT_PROC, exe="C:/AG/Antigravity.exe", created=1002.0),
+            procs.ProcInfo(pid=200, ppid=1, name=CLIENT_PROC, exe="C:/AG/Antigravity.exe", created=2000.0),
         ]
         own, residuals = procs.split_running(table, {"pid": 100, "created": 1000.5, "exe": "C:/AG/Antigravity.exe"})
         self.assertIsNotNone(own)
@@ -148,7 +154,7 @@ class TestProcsAndTree(unittest.TestCase):
 
     def test_pid_reuse_rejected_by_creation_time(self) -> None:
         table = [
-            procs.ProcInfo(pid=100, ppid=1, name="Antigravity.exe", exe="C:/AG/Antigravity.exe", created=5000.0),
+            procs.ProcInfo(pid=100, ppid=1, name=CLIENT_PROC, exe="C:/AG/Antigravity.exe", created=5000.0),
         ]
         own, residuals = procs.split_running(table, {"pid": 100, "created": 1000.0, "exe": "C:/AG/Antigravity.exe"})
         self.assertIsNone(own)
