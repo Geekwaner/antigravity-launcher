@@ -11,66 +11,56 @@ ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "aglauncher" / "assets"
 
 
+def _star_points(
+    cx: float,
+    cy: float,
+    rx: float,
+    ry: float,
+    *,
+    control: float = 0.40,
+    steps: int = 96,
+) -> list[tuple[float, float]]:
+    """四角星轮廓：四个方向各一条二次贝塞尔曲线，边线轻微内凹。"""
+    quadrants = (
+        ((0.0, -1.0), (control, -control), (1.0, 0.0)),
+        ((1.0, 0.0), (control, control), (0.0, 1.0)),
+        ((0.0, 1.0), (-control, control), (-1.0, 0.0)),
+        ((-1.0, 0.0), (-control, -control), (0.0, -1.0)),
+    )
+    points: list[tuple[float, float]] = []
+    for p0, p1, p2 in quadrants:
+        for i in range(steps + 1):
+            t = i / steps
+            x = (1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t**2 * p2[0]
+            y = (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t**2 * p2[1]
+            points.append((cx + x * rx, cy + y * ry))
+    return points
+
+
 def render_icon(size: int = 512) -> Image.Image:
-    """绘制深色底座 + 代理节点脉冲环 + 上升箭头矢量图标。"""
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    """绘制米白圆角底座 + 黑色四角星图标。"""
+    scale = 4
+    s = size * scale
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    pad = int(size * 0.04)
-    radius = int(size * 0.22)
-    # 圆角深色底座
+    pad = round(s * 0.035)
+    radius = round(s * 0.22)
+    # 圆角米白底座，保留参考图的浅色背景
     draw.rounded_rectangle(
-        (pad, pad, size - pad, size - pad),
+        (pad, pad, s - pad, s - pad),
         radius=radius,
-        fill=(15, 17, 21, 255),
-        outline=(54, 65, 86, 255),
-        width=max(2, size // 64),
+        fill=(250, 249, 245, 255),
+        outline=(218, 217, 213, 255),
+        width=max(2, round(s * 0.006)),
     )
 
-    # 内层微光环
-    cx, cy = size // 2, size // 2
-    ring_r = int(size * 0.34)
-    draw.ellipse(
-        (cx - ring_r, cy - ring_r, cx + ring_r, cy + ring_r),
-        outline=(76, 141, 255, 190),
-        width=max(4, size // 28),
+    cx, cy = s / 2, s / 2
+    draw.polygon(
+        _star_points(cx, cy, s * 0.335, s * 0.315),
+        fill=(31, 30, 29, 255),
     )
-
-    # 右上角绿色节点状态点
-    dot_r = max(5, int(size * 0.065))
-    dot_x = cx + int(ring_r * 0.72)
-    dot_y = cy - int(ring_r * 0.72)
-    draw.ellipse(
-        (dot_x - dot_r - 3, dot_y - dot_r - 3, dot_x + dot_r + 3, dot_y + dot_r + 3),
-        fill=(15, 17, 21, 255),
-    )
-    draw.ellipse(
-        (dot_x - dot_r, dot_y - dot_r, dot_x + dot_r, dot_y + dot_r),
-        fill=(61, 220, 132, 255),
-    )
-
-    # 中心向上“反重力 / 隧道穿透”箭头
-    s = size
-    arrow = [
-        (s * 0.50, s * 0.23),
-        (s * 0.72, s * 0.48),
-        (s * 0.58, s * 0.48),
-        (s * 0.58, s * 0.75),
-        (s * 0.42, s * 0.75),
-        (s * 0.42, s * 0.48),
-        (s * 0.28, s * 0.48),
-    ]
-    draw.polygon(arrow, fill=(76, 141, 255, 255))
-
-    # 底座横条（代表进程边界/隔离层）
-    bar_w = int(s * 0.30)
-    bar_h = max(4, int(s * 0.045))
-    draw.rounded_rectangle(
-        (cx - bar_w // 2, int(s * 0.79), cx + bar_w // 2, int(s * 0.79) + bar_h),
-        radius=bar_h // 2,
-        fill=(61, 220, 132, 240),
-    )
-    return img
+    return img.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def main() -> None:
