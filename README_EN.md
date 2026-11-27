@@ -5,279 +5,248 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-3ddc84.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-4c8dff.svg)](https://www.python.org/downloads/)
 
-[简体中文](README.md) · [English](README_EN.md)
+[简体中文](README.md) · [English](README_EN.md) | [Quick Start](#quick-start) · [Why This Exists](#why-this-exists) · [CLI Usage](#command-line-usage) · [Security & Privacy](#security--privacy) · [FAQ & Limitations](#faq--known-limitations)
 
-A **process-level proxy launcher** for the Google Antigravity desktop client. It does not take
-over system networking; it writes proxy settings into Antigravity's process environment at the
-moment it launches it.
+A **process-level proxy launcher** for the **Google Antigravity desktop client and `agy` CLI**. Instead of taking over system-wide networking, it injects proxy settings solely into the spawned process tree at launch time—leaving everything clean once the client exits.
 
-- No TUN interface, no system proxy changes, no virtual NIC, no administrator rights
-- Only affects the process tree it spawns; everything disappears when the client exits
-- Pure Python 3.10+ standard library, no third-party dependencies (tkinter for the UI)
+- **Zero system intrusion**: No TUN interface, no system proxy changes, no virtual NIC, no administrator privileges
+- **Real handshake validation**: Probes go beyond open ports—validating both HTTP CONNECT and SOCKS5 through live TLS handshakes against login and model endpoints, plus optional Google reachability preflight
+- **Process-tree isolation & tracking**: Distinguishes its own launched client from leftover un-proxied instances and verifies `language_server` attachment after launch
+- **Zero runtime dependencies**: Built purely on Python 3.10+ standard library (`tkinter` UI), with ready-to-run Windows x64 binaries
 
-Screenshots:
-
-| All three channels green | Leftover instances detected, launch blocked |
+| All three channels green, ready to launch | Leftover instances detected, warned and blocked |
 |---|---|
 | ![ready](docs/preview-ready.png) | ![blocked](docs/preview-blocked.png) |
 
 ---
 
-## 1. Why this exists
+## Quick Start
 
-Antigravity is not a single process. The component that actually talks to the network is
-`resources/bin/language_server.exe` (written in Go); OAuth, `loadCodeAssist`,
-`fetchAvailableModels` and model streaming all go through it.
+### Option 1: Download Prebuilt Binaries (Recommended for Windows)
 
-Three network stacks resolve proxies in incompatible ways:
+Download the latest build from [GitHub Releases](https://github.com/Geekwaner/antigravity-launcher/releases) (no Python required):
 
-| Layer | How it finds a proxy |
-|---|---|
-| Electron / Chromium | Reads the OS "system proxy" settings |
-| Go `net/http` | **Environment variables only**, never the registry |
-| Node core `https` | Reads neither |
+- **`AntigravityLauncher-<version>-win-x64-portable.zip` (Recommended)**: Portable directory build with instant startup and fewer antivirus false positives. **Extract the entire archive first**, then run `AntigravityLauncher.exe` (includes CLI binary `aglaunch.exe` in the same folder).
+- **`AntigravityLauncher-<version>-win-x64-standalone.exe`**: Single-file executable; run directly (first launch self-extracts in ~1–2 s).
 
-So "my system proxy is on but Antigravity still cannot connect" is expected: the Go layer ignores
-the registry, connects directly, and runs into DNS poisoning and TLS resets. Typical log lines are
-`getaddrinfo ENOTFOUND daily-cloudcode-pa.googleapis.com` and
-`Client network socket disconnected before secure TLS connection was established`.
+> [!NOTE]
+> - Releases currently ship **Windows x64 binaries only**. macOS and Linux users should run from source (Option 2).
+> - If Windows SmartScreen displays "Windows protected your PC", click **More info → Run anyway**. You can verify file integrity using `SHA256SUMS.txt` attached to each release.
 
-Environment variables are only inherited when a process is **created**; they cannot be injected
-into a running process. That is why this tool has to launch Antigravity itself, and why any old
-instance must be fully closed first.
+### Option 2: Run from Source (All Platforms / Developers)
 
----
-
-## 2. What it does
-
-1. **Locate the client and the terminal CLI** — scans the usual install locations per platform
-   (uses `mdfind` on macOS and skips its own wrapper directory, parses `.desktop` files on Linux),
-   then confirms the match via the sibling `resources/bin/language_server` so a same-named binary
-   is never mistaken for the client. It also detects the `agy` terminal CLI (common directories
-   plus `PATH`). Manual override is supported and remembered.
-2. **Validate the proxy (with auth support)** — reads the system proxy first (Windows registry /
-   macOS `scutil` / Linux `gsettings`), then environment variables, then scans common local ports.
-   Every candidate must complete a **real handshake**: both HTTP CONNECT and SOCKS5 (username and
-   password supported), verified separately against `accounts.google.com` (login) and
-   `daily-cloudcode-pa.googleapis.com` (model). After the tunnel is up, a TLS handshake must
-   succeed through it. An open port alone does not count.
-3. **Pre-launch Google reachability check (on by default, can be disabled)** — a local proxy
-   handshake only proves the proxy client is listening, not that the remote node works. Before
-   launch it can send one HTTPS request to `https://www.google.com/generate_204` through the same
-   tunnel with **full certificate verification**, catching dead nodes and expired subscriptions.
-   Toggle it in the bottom-right corner of the UI or skip it with `--no-preflight`.
-4. **Live state tracking, own vs. leftover instances** — records the PID and real creation time of
-   the client it launched (defends against Windows PID reuse), so a restarted launcher still
-   recognizes its own instance and tracks its exit. Any external instance without injected proxy
-   settings is shown in red and blocks launch, with a button to close it.
-5. **Launch and terminal helpers** — injects `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` plus their
-   lowercase variants, appends `--proxy-server` to pin Chromium to the same endpoint, and polls
-   the process tree to confirm `language_server` took over (fails fast if the parent exits
-   immediately). Also opens a proxy-injected terminal / `agy`, copies shell proxy commands, and
-   runs a "direct IP vs proxy exit IP + latency" network diagnosis.
-
-`NO_PROXY` always contains loopback (`localhost,127.0.0.1,::1`). This is not optional: the
-Antigravity UI is served by a local Go service on `127.0.0.1` and the OAuth callback listens on
-localhost, so proxying loopback results in a blank window.
-
----
-
-## 3. Usage
-
-### Option 1: Download a release (recommended for end users)
-
-Grab a build from [GitHub Releases](https://github.com/Geekwaner/antigravity-launcher/releases) (no Python required):
-
-- **`AntigravityLauncher-<version>-win-x64-portable.zip` (recommended)**: portable directory
-  build, starts instantly and triggers fewer false positives. **Extract the whole archive first**,
-  then run `AntigravityLauncher.exe` (a CLI tool `aglaunch.exe` ships alongside).
-- **`AntigravityLauncher-<version>-win-x64-standalone.exe`**: single-file build, run directly
-  (first start self-extracts, ~1–2 s).
-
-> Releases currently provide **Windows x64 binaries only**. macOS / Linux users should run from
-> source (Option 2).
->
-> If SmartScreen shows "Windows protected your PC", click **More info → Run anyway**. You can
-> verify checksums against `SHA256SUMS.txt` attached to the release.
-
-### Option 2: Run from source
-
-```
-Double-click AntigravityLauncher.bat   (no console window, Python 3.10+)
-```
-
-Or from a terminal:
+Requires **Python 3.10+** (with standard `tkinter`):
 
 ```bash
-py -3 aglaunch.py
+git clone https://github.com/Geekwaner/antigravity-launcher.git
+cd antigravity-launcher
 ```
 
-Detection runs automatically. Once all three channels are green, click the launch bar at the
-bottom. For non-standard ports, enter `http://127.0.0.1:12345` or `socks5://127.0.0.1:12345` in
-the "Proxy endpoint" field and press Enter to re-validate.
+- **Windows**: Double-click `AntigravityLauncher.bat` (launches GUI with no console window), or run:
+  ```powershell
+  py -3 aglaunch.py
+  ```
+- **macOS / Linux**:
+  ```bash
+  python3 aglaunch.py
+  ```
 
-### Install as commands (optional)
+Client discovery and proxy probing run automatically on startup. Once all three channels turn green, click **Launch** at the bottom. For non-standard ports or authenticated proxies, enter `http://127.0.0.1:12345` or `socks5://user:pass@127.0.0.1:12345` in the **Proxy endpoint** field and press Enter.
+
+### Option 3: Install as Global Commands (Optional)
 
 ```bash
 py -3 -m pip install .
 aglaunch --doctor        # CLI health check
-antigravity-launcher     # GUI
+antigravity-launcher     # Launch GUI
 ```
 
-Icon assets ship with the package, so the window icon works after installation.
+Icon assets are packaged inside `aglauncher/assets/`, so window icons display properly after installation.
 
-### Build the `.exe` locally
+---
 
-```bash
-py -3 -m pip install pyinstaller
-py -3 scripts/build.py            # builds both the portable .zip and the standalone .exe into dist/
-py -3 scripts/build.py --check-tag v1.0.0   # verify the tag matches __version__ before releasing
-```
+## Why This Exists
 
-Pushing a `v*` tag triggers [release.yml](.github/workflows/release.yml), which verifies that the
-tag matches the package version, runs the tests, builds both artifacts and publishes the release.
+Antigravity is a multi-process application. Actual outbound network requests—OAuth, `loadCodeAssist`, `fetchAvailableModels`, and model streaming—are handled by `resources/bin/language_server.exe` (written in Go).
 
-### Command line
+Its three internal network stacks resolve proxy settings differently:
+
+| Network Stack Layer | Proxy Resolution Behavior |
+|---|---|
+| Electron / Chromium | Reads OS "system proxy" settings |
+| Go `net/http` (`language_server`) | **Environment variables only**; ignores Windows registry proxy settings |
+| Node core `https` | Reads neither |
+
+That is why *"my system proxy is enabled, yet Antigravity still fails to connect"* happens reliably: the Go layer bypasses the system proxy, connects directly, and hits DNS poisoning or TLS resets (commonly surfaced as `getaddrinfo ENOTFOUND daily-cloudcode-pa.googleapis.com` or `Client network socket disconnected before secure TLS connection was established`).
+
+Because environment variables are inherited only at **process creation** and cannot be injected into an already-running process, this launcher ensures any un-proxied leftover instances are closed first and then spawns Antigravity with a clean proxy environment.
+
+---
+
+## Core Features
+
+1. **Client & `agy` CLI Discovery**
+   Scans standard installation paths on Windows, macOS (`mdfind` with wrapper exclusion), and Linux (`.desktop` parsing), and verifies each candidate against sibling `resources/bin/language_server` so unrelated binaries with similar names are never misidentified. Also detects the `agy` terminal CLI (standard paths and `PATH`), with persistent manual overrides.
+2. **Three-Tier Proxy Discovery & Authenticated Dual-Protocol Handshake**
+   Reads OS system proxy settings (Windows registry / macOS `scutil` / Linux `gsettings`), inspects environment variables, and concurrently scans common local proxy ports. Every candidate (including username/password auth) is tested with both HTTP CONNECT and SOCKS5 by establishing a tunnel and completing a real TLS handshake separately against `accounts.google.com` (login) and `daily-cloudcode-pa.googleapis.com` (model).
+3. **Pre-Launch Google Reachability Check (Enabled by Default)**
+   A local handshake only confirms the local proxy client is listening—not that the upstream node works. Before launch, the tool optionally sends an HTTPS request to `https://www.google.com/generate_204` through the validated tunnel with **full certificate verification**, catching dead or expired nodes early. Toggle it in the bottom-right corner or pass `--no-preflight`.
+4. **Live Process Tracking & Own vs. Leftover Separation**
+   Records the spawned client PID and exact process creation timestamp (protecting against Windows PID reuse), allowing a restarted launcher to recognize its own running instance. External un-proxied instances trigger a warning banner, block launch, and can be closed with one click.
+5. **Terminal Helpers & Network Diagnostics**
+   Injects `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` (and lowercase variants), appends `--proxy-server` for Chromium, and polls the process tree to verify `language_server` ownership (failing fast on immediate parent exits). Also provides one-click proxy-injected terminals / `agy`, copyable shell commands (PowerShell / CMD / Bash / Git), and direct vs. proxy exit IP + latency diagnostics.
+
+> [!IMPORTANT]
+> `NO_PROXY` always includes loopback addresses (`localhost,127.0.0.1,::1`). Antigravity renders its UI from a local Go server on `127.0.0.1` and receives OAuth callbacks on `localhost`; proxying loopback traffic causes a blank window or broken sign-in flow.
+
+---
+
+## Command-Line Usage
+
+From source, run with `py -3 aglaunch.py` (or `python3 aglaunch.py` on macOS/Linux). If installed via `pip` or using `aglaunch.exe` from the portable zip, replace the prefix with `aglaunch`:
 
 ```bash
 # Read-only health check: no process killing, no client launch
 py -3 aglaunch.py --doctor
 
-# Verbose handshake log plus network diagnosis (direct vs proxy exit IP + latency)
+# Verbose per-attempt handshake log + network diagnostics (direct vs proxy exit IP + latency)
 py -3 aglaunch.py --doctor -v --diag
 
-# Machine-readable
+# Machine-readable JSON output
 py -3 aglaunch.py --doctor --json
 
-# Launch after a successful check (optionally clearing leftovers; skip the Google check with --no-preflight)
+# Launch desktop client after checks pass (auto-close leftovers; add --no-preflight to skip Google check)
 py -3 aglaunch.py --launch --kill-residuals
 
-# Open a proxy-injected terminal and run the agy CLI (or just --terminal)
+# Open a proxy-injected terminal and launch agy CLI (or --terminal only)
 py -3 aglaunch.py --agy
 
-# Manual endpoint
+# Manual proxy endpoint (auth supported)
 py -3 aglaunch.py --launch --proxy socks5://127.0.0.1:1080
 ```
 
-Exit codes: `0` ready / `2` leftover instances / `3` proxy validation failed / `4` client not found.
+| Exit Code | Meaning |
+|---|---|
+| `0` | Ready / launch succeeded |
+| `1` | Runtime error or post-launch verification failed |
+| `2` | Leftover un-proxied instances detected |
+| `3` | Proxy handshake or reachability check failed |
+| `4` | Antigravity client or `agy` CLI not found |
 
 ---
 
-## 4. Decision rules (key design)
+## Decision Rules & Design Details
 
-- **Protocol classification**: `mixed` (both protocols pass), `http`, `socks5`, `dead`. A listening
-  port, or a CONNECT that returns 200 but then breaks the TLS stream, does not count as usable.
-- **Two targets verified separately**: login and model traffic may take completely different
-  routes; one passing while the other fails is normal, so they are never merged into a single
-  "is the proxy up" answer.
-- **Retries**: each (protocol × target) combination retries twice by default and passes on any
-  success. Cross-border routes are flaky enough that a single probe misjudges regularly.
-- **Endpoint selection**: prefer an endpoint that passes both channels; otherwise fall back to the
-  first protocol-usable endpoint and show its real state (the launch button becomes "Launch anyway
-  (channels not all green)" and requires confirmation).
-- **Mixed-port mapping**: for `mixed`, `HTTP_PROXY`/`HTTPS_PROXY` use `http://` and `ALL_PROXY`
-  uses `socks5://`, so each layer gets what it handles best; `--proxy-server` uses `http://`
-  (Chromium's CONNECT support is the most reliable).
-- **Credentials**: authenticated proxies are passed through environment variables only, and are
-  masked as `***` in the UI and logs. `--proxy-server` cannot carry credentials, so it is omitted
-  with an explanatory log line.
+- **Protocol classification**: `mixed` (both HTTP CONNECT and SOCKS5 succeed), `http`, `socks5`, or `dead`. An open port—or a `200` CONNECT response followed by a broken TLS handshake—does not pass.
+- **Independent channel verification**: Login and model endpoints often route through different outbound rules; one passing while the other fails is common, so they are never collapsed into a single status.
+- **Retry on transient jitter**: Each `(protocol × target)` pair retries up to 2 times by default and passes on the first success, avoiding false negatives on flaky routes.
+- **Endpoint selection & fallback**: Prefers an endpoint green on both channels; otherwise falls back to the first protocol-usable endpoint and displays the exact channel failures (requiring explicit confirmation before launching).
+- **Mixed-port mapping**: For `mixed` endpoints, `HTTP_PROXY`/`HTTPS_PROXY` use `http://` and `ALL_PROXY` uses `socks5://`; Chromium receives `--proxy-server=http://...` (best CONNECT compatibility).
+- **Credential handling**: Proxy credentials are passed via environment variables only and masked as `***` in UI previews and logs. Since Chromium's `--proxy-server` flag cannot carry credentials, it is omitted with a log warning when auth is present.
 
 ---
 
-## 5. Project layout
+## Security & Privacy
 
-```
+- Scoped strictly to the spawned process tree; no registry edits, no system proxy changes, no virtual NICs.
+- Terminating leftover processes requires confirmation and sends `WM_CLOSE` (`SIGTERM` on POSIX) before force-killing.
+- Proxy credentials are masked as `***` across UI previews and logs.
+- **About validation-stage TLS settings**: Probe handshakes skip certificate-chain verification intentionally to verify that the tunnel carries TLS traffic (preventing false failures behind local MITM/debugging proxies with custom root CAs). This **never** disables Antigravity's own TLS certificate verification.
+- **Outbound network requests**: The only external request made by the tool itself occurs when you explicitly trigger **Network diagnosis** (UI button or `--diag`), which queries `http://ip-api.com/json` over plain HTTP to compare direct vs. proxy exit IPs (containing no local paths, accounts, or Antigravity data). No telemetry is sent anywhere.
+
+---
+
+## FAQ & Known Limitations
+
+<details>
+<summary><strong>Click to expand: Troubleshooting (System proxy ignored / Blocked launch / Google unreachable / Post-OAuth blank page)</strong></summary>
+
+1. **My system proxy is enabled—why does the launcher find no usable proxy?**
+   Check that your local proxy client accepts loopback connections, verify you are not relying solely on a PAC script (PAC rules cannot be read statically; check the runtime log note), or enter your proxy port manually in **Proxy endpoint** (e.g. `http://127.0.0.1:7897`).
+2. **Why is the launch button blocked due to leftover instances?**
+   Existing `Antigravity` or `language_server` processes started outside the launcher lack proxy environment variables; single-instance locking would prevent a fresh launch from taking effect. Click **Terminate all instances** in the warning bar to clean them up safely.
+3. **All three channels are green, why does preflight say Google is unreachable?**
+   Your local proxy port is reachable, but the upstream proxy node failed to reach `www.google.com/generate_204` (dead or expired node). Switch proxy nodes and retry—or uncheck **Google check** in the bottom-right corner (CLI: `--no-preflight`) if your custom gateway intentionally blocks it.
+4. **All channels are green and `language_server` is attached, yet browser OAuth still ends in an account error or blank screen?**
+   This is typically caused by Google account risk-control or web session state rather than local proxying. See the upstream community workaround [GEMINI-WEB-WORKAROUND](https://github.com/peroperoyui-lab/antigravity-proxy-launcher/blob/main/GEMINI-WEB-WORKAROUND.md) (unofficial; evaluate risk yourself before applying).
+
+</details>
+
+- **DPI & window geometry**: Built with `tkinter`, defaulting to `980×880` (`920×780` minimum) and expanding vertically if the leftover-instance warning appears (capped at screen height minus 90 px).
+- **Process names**: Matches `Antigravity` / `Antigravity.exe` and `language_server` / `language_server.exe`; upstream binary renames require corresponding updates.
+- **PAC limitation**: Proxy rules inside PAC auto-config scripts cannot be evaluated statically.
+
+---
+
+## Project Layout & Local Packaging
+
+```text
 antigravity-launcher/
-├── aglaunch.py              Entry point (GUI without args; CLI otherwise)
-├── AntigravityLauncher.bat  Windows double-click launcher (no console, Python 3.10+)
-├── pyproject.toml           Metadata and console entry points
+├── aglaunch.py              Entry point (GUI by default; CLI with flags)
+├── AntigravityLauncher.bat  Windows console-free launcher (Python 3.10+)
+├── pyproject.toml           Package metadata, bundled assets, entry points
 ├── CHANGELOG.md             Release history
-├── LICENSE                  MIT
-├── README_EN.md             This file
+├── LICENSE                  MIT License
+├── README_EN.md             English README
 ├── docs/                    UI screenshots
 ├── scripts/
-│   ├── build.py             One-shot packaging (portable .zip + standalone .exe)
-│   └── make_icon.py         Icon generator
+│   ├── build.py             PyInstaller bundler (portable .zip + standalone .exe)
+│   └── make_icon.py         Application icon generator
 ├── tests/
 │   └── test_launcher.py     Unit tests
 ├── .github/
-│   ├── ISSUE_TEMPLATE/      Bug / feature request forms
+│   ├── ISSUE_TEMPLATE/      Bug / feature request templates
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   └── workflows/
-│       ├── ci.yml           Three-platform test matrix
-│       └── release.yml      Tag-triggered version check, build and release
+│       ├── ci.yml           Windows / macOS / Ubuntu test matrix
+│       └── release.yml      Tag-triggered version check, build, and release
 └── aglauncher/
-    ├── assets/              Application icons (shipped in the wheel)
-    ├── client.py            Client discovery + language_server confirmation + agy detection
-    ├── proxy.py             System proxy discovery, port scan, authenticated handshakes, diagnosis
-    ├── procs.py             ctypes process enumeration / termination / tree identification
-    ├── launcher.py          Env construction, masked preview, spawn, terminal helpers
-    ├── core.py              Shared inspection pipeline (GUI and CLI)
+    ├── assets/              Bundled application icons
+    ├── client.py            Client discovery, language_server verification, agy detection
+    ├── proxy.py             System proxy reading, port scan, auth handshakes, diagnostics
+    ├── procs.py             ctypes process enumeration, graceful close, tree tracking
+    ├── launcher.py          Env builder, masked preview, process spawn, terminal helpers
+    ├── core.py              Shared inspection pipeline (GUI & CLI)
     ├── gui.py               tkinter UI
-    ├── cli.py               Command line
-    └── store.py             Preferences persistence
+    ├── cli.py               CLI interface
+    └── store.py             Local preferences persistence
 ```
 
-Preferences live in `%APPDATA%\AntigravityLauncher\config.json` (client path, manual proxy, retry
-settings only). Antigravity's own configuration is never touched and nothing is written to the
-registry.
+Preferences file location:
+- **Windows**: `%APPDATA%\AntigravityLauncher\config.json`
+- **macOS / Linux**: `~/.config/AntigravityLauncher/config.json`
+
+Only stores launcher-specific settings (client path, manual proxy, probe parameters, and last launched PID record); Antigravity's own configuration is never modified.
+
+### Building Windows Releases Locally
+
+```powershell
+py -3 -m pip install pyinstaller
+py -3 scripts/build.py                      # builds portable .zip and standalone .exe into dist/
+py -3 scripts/build.py --check-tag v1.0.0   # verify tag matches __version__ before releasing
+```
+
+Pushing a `v*` tag triggers [release.yml](.github/workflows/release.yml) in GitHub Actions to validate the version tag, run tests, build both artifacts, and publish the GitHub Release.
 
 ---
 
-## 6. Security boundaries
+## Credits & Upstream Inspiration
 
-- Only the spawned process tree is affected; everything disappears on exit.
-- No registry writes, no system proxy changes, no virtual NIC, no TLS verification disabled.
-- Closing processes asks for confirmation first and sends `WM_CLOSE` before force-terminating.
-- Proxy credentials are masked in the UI and logs.
-- Validation handshakes skip certificate-chain verification on purpose: the goal is to prove the
-  tunnel carries real TLS traffic, and some proxies MITM with a locally issued root certificate,
-  which would make working routes look dead. This does **not** affect Antigravity's own
-  certificate verification — the tool never disables it.
-- The only outbound data request happens when **network diagnosis is explicitly triggered** (the
-  "Network diagnosis" button or `--doctor --diag`): it queries `http://ip-api.com/json` over plain
-  HTTP for the direct exit IP, and the same endpoint through the proxy for the proxy exit IP. The
-  request contains no local paths, accounts or Antigravity data, and it is never sent otherwise.
-  No telemetry is uploaded anywhere.
+The process-level proxy injection approach was inspired by [peroperoyui-lab/antigravity-proxy-launcher](https://github.com/peroperoyui-lab/antigravity-proxy-launcher) (MIT), and the UI layout takes inspiration from [Ikaros-521/antigravity-launcher](https://github.com/Ikaros-521/antigravity-launcher) (MIT, Electron).
+
+This is an independent Python implementation containing no source code from either project, with deliberate architectural choices:
+
+- Pure Python stdlib + `tkinter` instead of Electron (no Node runtime, zero runtime dependencies);
+- Multi-stage validation: tunnel establishment, live TLS handshakes, retry/fallback selection, and pre-launch Google reachability verification;
+- Post-launch process-tree ancestry verification confirming `language_server` belongs to the newly spawned parent;
+- Separation of launcher-owned vs. leftover instances using process creation timestamps to prevent Windows PID reuse collisions.
 
 ---
 
-## 7. Known limitations
+## Contributing
 
-- The UI is tkinter; at 200% display scaling controls grow with the system DPI and the window
-  adapts between 880–915 px in height (capped at screen height minus 90 px).
-- Only the process names `Antigravity.exe` and `language_server.exe` are recognized; upstream
-  renames require updates here.
-- Proxies configured through a PAC file cannot be read statically; the inspection notes call this out.
-- If all channels are green and `language_server` is confirmed running, but Gemini web or the
-  client still shows account errors / a blank page after browser OAuth, the cause is usually the
-  Google account's risk-control or web session state rather than the local proxy. See the upstream
-  community workaround [GEMINI-WEB-WORKAROUND](https://github.com/peroperoyui-lab/antigravity-proxy-launcher/blob/main/GEMINI-WEB-WORKAROUND.md)
-  (not an official Google fix; judge the risk yourself before applying).
-
----
-
-## 8. Relation to upstream projects
-
-The process-level injection idea comes from
-[peroperoyui-lab/antigravity-proxy-launcher](https://github.com/peroperoyui-lab/antigravity-proxy-launcher) (MIT);
-the GUI reference implementation is
-[Ikaros-521/antigravity-launcher](https://github.com/Ikaros-521/antigravity-launcher) (MIT, Electron).
-
-This project is an independent Python implementation that contains no code from those projects,
-with these deliberate trade-offs:
-
-- tkinter instead of Electron: no Node runtime, zero bundled dependencies;
-- "tunnel + real TLS handshake" two-stage validation with retries and endpoint comparison;
-- post-launch process-tree verification that `language_server` is really a child of this launch;
-- leftover instances are summarized, with PID details kept in the log to preserve layout space.
-
----
-
-## 9. Contributing
-
-- Before filing a bug, run `aglaunch --doctor -v --json` and attach the **redacted** output;
-- Describe how you verified your change (`python -m unittest discover -s tests -v` should be green);
+- Before reporting a bug, please run `py -3 aglaunch.py --doctor -v --json` (or `aglaunch --doctor -v --json`) and attach the **redacted** output in your issue;
+- Before opening a PR, ensure all unit tests pass: `py -3 -m unittest discover -s tests -v`;
 - See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-MIT licensed, see [LICENSE](LICENSE).
+Released under the [MIT License](LICENSE).
