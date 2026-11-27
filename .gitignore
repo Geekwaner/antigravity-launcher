@@ -28,3 +28,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 *.log
+
+# 宣传视频工程（本地素材与构建产物，不入库）
+promo/

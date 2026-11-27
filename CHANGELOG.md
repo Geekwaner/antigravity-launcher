@@ -6,6 +6,24 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-27
+
+新增预编译发行包，发布流程现在会在同一个 Release 中提供两个平台的安装包。
+
+### 新增
+
+- macOS Apple Silicon（M 系列）原生 `.dmg` 安装包，内置 `.app` 与 `aglaunch` 命令行入口。
+- 发布流程支持 Windows 与 macOS 双平台并行构建，并生成统一的 `SHA256SUMS.txt`。
+
+### 变更
+
+- Windows 发行包调整为单文件版 `.exe`；目录版 `.zip` 不再随 Release 发布。
+- Linux 桌面项扫描会跳过启动器自身的包装 `.desktop` 文件，避免误认客户端。
+
+### 修复
+
+- 发布工作流增加手动触发入口，便于在不发布的情况下验证打包。
+
 ## [1.0.0] - 2026-11-26
 
 首次开源发布。
@@ -38,5 +56,6 @@
 - 终止进程前二次确认，优先发送 `WM_CLOSE`。
 - 除主动触发的网络诊断外，不发起任何对外数据请求。
 
-[Unreleased]: https://github.com/Geekwaner/antigravity-launcher/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Geekwaner/antigravity-launcher/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Geekwaner/antigravity-launcher/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Geekwaner/antigravity-launcher/releases/tag/v1.0.0

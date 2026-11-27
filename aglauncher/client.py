@@ -144,7 +144,7 @@ def _linux_candidates() -> list[Path]:
         except OSError:
             continue
         for f in files:
-            if "antigrav" not in f.name.lower() or f.suffix != ".desktop":
+            if "antigrav" not in f.name.lower() or f.suffix != ".desktop" or _WRAPPER_RE.search(f.name):
                 continue
             try:
                 for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():

@@ -4,13 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   check-version:
-    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,7 +23,12 @@ jobs:
 
   test:
     needs: check-version
-    runs-on: windows-latest
+    if: always() && (needs.check-version.result == 'success' || needs.check-version.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,7 +38,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   build-windows:
-    needs: [check-version, test]
+    needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,30 +47,61 @@ jobs:
           python-version: "3.12"
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
-      - name: Build portable (.zip) and standalone (.exe)
-        run: python scripts/build.py --mode all
-      - name: Smoke test CLI binary
+      - name: Build Windows standalone (.exe)
+        run: python scripts/build.py
+      - name: Verify Windows artifact
         run: |
-          Expand-Archive -Path dist\*-win-x64-portable.zip -DestinationPath build\smoke
-          build\smoke\AntigravityLauncher\aglaunch.exe --help
-          build\smoke\AntigravityLauncher\aglaunch.exe --version
-      - name: Upload artifacts
+          $exe = Get-ChildItem dist\*-win-x64-standalone.exe | Select-Object -First 1
+          if (-not $exe -or $exe.Length -lt 1MB) { throw "Unexpected standalone exe output" }
+          Write-Host "Built $($exe.Name) ($([math]::Round($exe.Length / 1MB, 2)) MB)"
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-dist
-          path: |
-            dist/*.zip
-            dist/*.exe
-            dist/SHA256SUMS.txt
+          name: dist-win-x64
+          path: dist/*.exe
+
+  build-macos:
+    needs: test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify tkinter and install PyInstaller
+        run: |
+          python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+          python -m pip install --upgrade pip pyinstaller
+      - name: Build macOS Apple Silicon (.dmg)
+        run: python scripts/build.py
+      - name: Smoke test macOS bundle and DMG
+        run: |
+          codesign --verify --deep --strict build/macos_dist/AntigravityLauncher.app
+          build/macos_dist/AntigravityLauncher.app/Contents/MacOS/aglaunch --help
+          build/macos_dist/AntigravityLauncher.app/Contents/MacOS/aglaunch --version
+          ls -lh dist/*.dmg
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac-arm64
+          path: dist/*.dmg
 
   publish:
-    needs: build-windows
-    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: windows-dist
-          path: dist
+          path: release-dist
+          pattern: dist-*
+          merge-multiple: true
+      - name: Generate unified SHA256SUMS.txt
+        working-directory: release-dist
+        run: |
+          sha256sum $(ls -1 | sort) > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -71,13 +109,19 @@ jobs:
           body: |
             ## 下载说明 / Downloads
 
-            本 Release 仅提供 **Windows x64** 预编译产物；macOS / Linux 请克隆仓库后从源码运行（依赖 Python 3.10+）：`python aglaunch.py`。
+            | 平台 | 文件 | 说明 |
+            |---|---|---|
+            | **Windows x64** | `*-win-x64-standalone.exe` | 单文件便携版，免解压直接双击运行 |
+            | **macOS Apple Silicon (M 系列)** | `*-mac-arm64.dmg` | 原生 `.app` 拖拽安装包（内置 `Contents/MacOS/aglaunch` CLI） |
 
-            - **`*-win-x64-portable.zip`（推荐）**：目录绿色版，启动更快、误报更少。**请先完整解压到文件夹**，再双击运行 `AntigravityLauncher.exe`（同目录附带命令行工具 `aglaunch.exe`）。
-            - **`*-win-x64-standalone.exe`**：单文件便携版，免解压直接双击运行（首次启动会先自解压约 1~2 秒）。
+            > macOS Intel 与 Linux 用户可直接克隆仓库运行源码（需 Python 3.10+）：`python3 aglaunch.py`。
 
-            > 本项目产物未购买商业代码签名证书。若 Windows SmartScreen 弹出「已保护你的电脑」，可点击「更多信息 → 仍要运行」；不放心也可在 Releases 核对 `SHA256SUMS.txt`，或直接拉取源码用 `AntigravityLauncher.bat` 运行。
+            ### 校验与放行提示
+            - 可使用附件 `SHA256SUMS.txt` 核对文件 SHA-256 校验值。
+            - **Windows**：未购买商业签名证书，若 SmartScreen 提示「已保护你的电脑」，点击 **更多信息 → 仍要运行**。
+            - **macOS**：未公证（ad-hoc 签名），拖入 `/Applications` 后首次打开若提示「已损坏」或「无法验证开发者」，在终端执行一次：
+              ```bash
+              xattr -cr /Applications/AntigravityLauncher.app
+              ```
           files: |
-            dist/*.zip
-            dist/*.exe
-            dist/SHA256SUMS.txt
+            release-dist/*

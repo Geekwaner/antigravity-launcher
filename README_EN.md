@@ -12,7 +12,7 @@ A **process-level proxy launcher** for the **Google Antigravity desktop client a
 - **Zero system intrusion**: No TUN interface, no system proxy changes, no virtual NIC, no administrator privileges
 - **Real handshake validation**: Probes go beyond open ports—validating both HTTP CONNECT and SOCKS5 through live TLS handshakes against login and model endpoints, plus optional Google reachability preflight
 - **Process-tree isolation & tracking**: Distinguishes its own launched client from leftover un-proxied instances and verifies `language_server` attachment after launch
-- **Zero runtime dependencies**: Built purely on Python 3.10+ standard library (`tkinter` UI), with ready-to-run Windows x64 binaries
+- **Zero runtime dependencies**: Built purely on Python 3.10+ standard library (`tkinter` UI), with prebuilt packages for Windows x64 and macOS Apple Silicon
 
 | All three channels green, ready to launch | Leftover instances detected, warned and blocked |
 |---|---|
@@ -22,16 +22,23 @@ A **process-level proxy launcher** for the **Google Antigravity desktop client a
 
 ## Quick Start
 
-### Option 1: Download Prebuilt Binaries (Recommended for Windows)
+### Option 1: Download Prebuilt Packages (Recommended, No Python Required)
 
-Download the latest build from [GitHub Releases](https://github.com/Geekwaner/antigravity-launcher/releases) (no Python required):
+Download the build for your platform from [GitHub Releases](https://github.com/Geekwaner/antigravity-launcher/releases) (automatically built via GitHub Actions on every `v*` tag):
 
-- **`AntigravityLauncher-<version>-win-x64-portable.zip` (Recommended)**: Portable directory build with instant startup and fewer antivirus false positives. **Extract the entire archive first**, then run `AntigravityLauncher.exe` (includes CLI binary `aglaunch.exe` in the same folder).
-- **`AntigravityLauncher-<version>-win-x64-standalone.exe`**: Single-file executable; run directly (first launch self-extracts in ~1–2 s).
+| Platform | Artifact | Notes |
+|---|---|---|
+| **Windows x64** | `AntigravityLauncher-<version>-win-x64-standalone.exe` | Single-file executable; run directly without extracting (first launch self-extracts in ~1–2 s) |
+| **macOS Apple Silicon (M-series)** | `AntigravityLauncher-<version>-mac-arm64.dmg` | Native Apple Silicon `.app` drag-to-install image (includes `Contents/MacOS/aglaunch` CLI) |
 
 > [!NOTE]
-> - Releases currently ship **Windows x64 binaries only**. macOS and Linux users should run from source (Option 2).
-> - If Windows SmartScreen displays "Windows protected your PC", click **More info → Run anyway**. You can verify file integrity using `SHA256SUMS.txt` attached to each release.
+> - **Other platforms**: macOS Intel and Linux users can run directly from source (Option 2, requires Python 3.10+).
+> - **Checksum verification**: Verify downloaded files against `SHA256SUMS.txt` attached to each release.
+> - **Windows SmartScreen**: Binaries are unsigned; if SmartScreen shows "Windows protected your PC", click **More info → Run anyway**.
+> - **macOS Gatekeeper**: `.app` bundles are ad-hoc signed (not notarized). After dragging to `/Applications`, if macOS blocks first launch, run once in Terminal:
+>   ```bash
+>   xattr -cr /Applications/AntigravityLauncher.app
+>   ```
 
 ### Option 2: Run from Source (All Platforms / Developers)
 
@@ -103,7 +110,7 @@ Because environment variables are inherited only at **process creation** and can
 
 ## Command-Line Usage
 
-From source, run with `py -3 aglaunch.py` (or `python3 aglaunch.py` on macOS/Linux). If installed via `pip` or using `aglaunch.exe` from the portable zip, replace the prefix with `aglaunch`:
+From source, run with `py -3 aglaunch.py` (or `python3 aglaunch.py` on macOS/Linux). If installed via `pip`, replace the prefix with `aglaunch`:
 
 ```bash
 # Read-only health check: no process killing, no client launch
@@ -190,7 +197,7 @@ antigravity-launcher/
 ├── README_EN.md             English README
 ├── docs/                    UI screenshots
 ├── scripts/
-│   ├── build.py             PyInstaller bundler (portable .zip + standalone .exe)
+│   ├── build.py             PyInstaller bundler (Windows standalone .exe / macOS arm64 .dmg)
 │   └── make_icon.py         Application icon generator
 ├── tests/
 │   └── test_launcher.py     Unit tests
@@ -218,15 +225,15 @@ Preferences file location:
 
 Only stores launcher-specific settings (client path, manual proxy, probe parameters, and last launched PID record); Antigravity's own configuration is never modified.
 
-### Building Windows Releases Locally
+### Building Release Packages Locally
 
-```powershell
-py -3 -m pip install pyinstaller
-py -3 scripts/build.py                      # builds portable .zip and standalone .exe into dist/
-py -3 scripts/build.py --check-tag v1.0.0   # verify tag matches __version__ before releasing
+```bash
+python -m pip install pyinstaller
+python scripts/build.py                      # Windows: standalone.exe | macOS: .dmg
+python scripts/build.py --check-tag v1.1.0   # verify tag matches __version__ before releasing
 ```
 
-Pushing a `v*` tag triggers [release.yml](.github/workflows/release.yml) in GitHub Actions to validate the version tag, run tests, build both artifacts, and publish the GitHub Release.
+Pushing a `v*` tag triggers [release.yml](.github/workflows/release.yml) in GitHub Actions to validate the version tag, run tests, build the Windows x64 standalone `.exe` and macOS Apple Silicon `.dmg`, and publish the GitHub Release. You can also trigger **Run workflow** manually in GitHub Actions to dry-run the build without publishing.
 
 ---
 

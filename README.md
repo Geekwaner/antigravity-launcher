@@ -12,7 +12,7 @@
 - **零侵入**：不开 TUN、不改系统代理、不装虚拟网卡、无需管理员权限
 - **真握手校验**：不仅探测端口监听，还会穿过隧道分别完成登录端点与模型端点的 TLS 握手及 Google 可达性校验
 - **进程树隔离与接管追踪**：自动区分己方拉起实例与未注入代理的残留实例，并在启动后确认 `language_server` 成功挂载
-- **零第三方运行时依赖**：纯 Python 3.10+ 标准库实现（界面基于 `tkinter`），Windows x64 提供开箱即用构建
+- **零第三方运行时依赖**：纯 Python 3.10+ 标准库实现（界面基于 `tkinter`），提供 Windows x64 与 macOS Apple Silicon 开箱即用发行包
 
 | 三通道全绿，可启动 | 检测到未注入代理的残留实例，警示并阻断 |
 |---|---|
@@ -22,16 +22,23 @@
 
 ## 快速开始
 
-### 方式一：下载预编译版本（Windows 用户推荐）
+### 方式一：下载预编译版本（推荐，无需 Python）
 
-前往 [GitHub Releases](https://github.com/Geekwaner/antigravity-launcher/releases) 下载对应版本（无需安装 Python）：
+前往 [GitHub Releases](https://github.com/Geekwaner/antigravity-launcher/releases) 下载对应系统的构建产物（每次推送 `v*` 标签由 GitHub Actions 自动构建）：
 
-- **`AntigravityLauncher-<版本>-win-x64-portable.zip`（推荐）**：目录绿色版，启动秒开、杀毒软件误报率更低。**请先完整解压到文件夹**，再双击运行 `AntigravityLauncher.exe`（同目录附带命令行工具 `aglaunch.exe`）。
-- **`AntigravityLauncher-<版本>-win-x64-standalone.exe`**：单文件便携版，免解压直接运行（首次启动会先自解压约 1–2 秒）。
+| 平台 | 文件 | 说明 |
+|---|---|---|
+| **Windows x64** | `AntigravityLauncher-<版本>-win-x64-standalone.exe` | 单文件便携版，免解压直接双击运行（首次打开需自解压约 1–2 秒） |
+| **macOS Apple Silicon (M 系列)** | `AntigravityLauncher-<版本>-mac-arm64.dmg` | M1/M2/M3/M4 原生 `.app` 拖拽安装包（内置 `Contents/MacOS/aglaunch` CLI） |
 
 > [!NOTE]
-> - Releases 目前**仅提供 Windows x64 预编译产物**；macOS / Linux 用户请使用下方的「方式二：从源码运行」。
-> - 若 Windows SmartScreen 弹出「已保护你的电脑」，点击 **更多信息 → 仍要运行**；可在 Release 附件 `SHA256SUMS.txt` 核对 SHA-256 校验值。
+> - **其他平台**：macOS Intel 与 Linux 用户请使用下方「方式二：从源码运行」（仅需 Python 3.10+）。
+> - **校验完整性**：所有产物均可在 Release 附件 `SHA256SUMS.txt` 中核对 SHA-256 校验值。
+> - **Windows SmartScreen**：产物未购买商业代码签名证书；若弹出「已保护你的电脑」，点击 **更多信息 → 仍要运行**。
+> - **macOS Gatekeeper**：`.app` 为本地 ad-hoc 签名未公证；拖入 `/Applications` 后首次打开若提示「已损坏」或「无法验证开发者」，在终端执行一次：
+>   ```bash
+>   xattr -cr /Applications/AntigravityLauncher.app
+>   ```
 
 ### 方式二：从源码运行（全平台 / 开发者）
 
@@ -103,7 +110,7 @@ Antigravity 并非单一进程，真正负责对外通信的核心组件是 `res
 
 ## 命令行用法
 
-源码目录使用 `py -3 aglaunch.py`（macOS / Linux 用 `python3 aglaunch.py`）；若已通过 `pip install .` 安装或使用便携版里的 `aglaunch.exe`，可直接把前缀替换为 `aglaunch`：
+源码目录使用 `py -3 aglaunch.py`（macOS / Linux 用 `python3 aglaunch.py`）；若已通过 `pip install .` 安装，可直接把前缀替换为 `aglaunch`：
 
 ```bash
 # 只读体检：不终止进程、不启动客户端
@@ -190,7 +197,7 @@ antigravity-launcher/
 ├── README_EN.md             English README
 ├── docs/                    文档截图
 ├── scripts/
-│   ├── build.py             PyInstaller 一键打包脚本（portable .zip + standalone .exe）
+│   ├── build.py             PyInstaller 打包脚本（Windows standalone .exe / macOS arm64 .dmg）
 │   └── make_icon.py         应用图标生成脚本
 ├── tests/
 │   └── test_launcher.py     单元测试
@@ -218,15 +225,15 @@ antigravity-launcher/
 
 仅保存启动器自身的客户端路径、手动代理、校验参数与已拉起 PID 记录，不修改 Antigravity 自身配置。
 
-### 本地构建 Windows 发行包
+### 本地构建当前平台发行包
 
-```powershell
-py -3 -m pip install pyinstaller
-py -3 scripts/build.py                      # 同时构建目录版 .zip 与单文件 .exe 到 dist/
-py -3 scripts/build.py --check-tag v1.0.0   # 发版前校验 tag 与 __version__ 是否一致
+```bash
+python -m pip install pyinstaller
+python scripts/build.py                      # Windows: standalone.exe | macOS: .dmg
+python scripts/build.py --check-tag v1.1.0   # 发版前校验 tag 与 __version__ 是否一致
 ```
 
-推送 `v*` 标签会自动触发 [release.yml](.github/workflows/release.yml) 在 GitHub Actions 中完成版本校验、测试、双产物构建与 Release 发布。
+推送 `v*` 标签会自动触发 [release.yml](.github/workflows/release.yml) 在 GitHub Actions 中完成版本校验、测试、Windows x64 单文件版与 macOS Apple Silicon `.dmg` 构建与 Release 发布；也支持在 GitHub Actions 页面手动点击 **Run workflow** 进行不发布的试打包验证。
 
 ---
 

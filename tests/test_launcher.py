@@ -413,6 +413,30 @@ class TestReleaseArtifactsConfig(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(mod.main(["--check-tag", "v9.9.9"]), 1)
 
+    def test_cross_platform_packaging_helpers(self) -> None:
+        mod = load_build_script()
+        self.assertEqual(mod.arch_name("arm64"), "arm64")
+        self.assertEqual(mod.arch_name("aarch64"), "arm64")
+        self.assertEqual(mod.arch_name("x86_64"), "x64")
+        self.assertTrue(mod.platform_tag().startswith(("win-", "mac-", "linux-")))
+
+    def test_linux_desktop_scan_skips_launcher_wrapper(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            apps_dir = Path(tmp) / ".local" / "share" / "applications"
+            apps_dir.mkdir(parents=True)
+            (apps_dir / "antigravity-launcher.desktop").write_text(
+                "[Desktop Entry]\nExec=/usr/bin/antigravity-launcher\n", encoding="utf-8"
+            )
+            (apps_dir / "antigravity.desktop").write_text(
+                "[Desktop Entry]\nExec=/opt/antigravity/antigravity --flag\n", encoding="utf-8"
+            )
+            with mock.patch("aglauncher.client.Path.home", return_value=Path(tmp)):
+                cands = client._linux_candidates()
+            self.assertIn(Path("/opt/antigravity/antigravity"), cands)
+            self.assertNotIn(Path("/usr/bin/antigravity-launcher"), cands)
+
 
 if __name__ == "__main__":
     unittest.main()

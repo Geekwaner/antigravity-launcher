@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""打包发布脚本：同时产出目录版（portable.zip）与单文件版（standalone.exe）。
+"""打包发布脚本：Windows 单文件版（standalone.exe）与 macOS Apple Silicon 安装镜像（.dmg）。
 
 用法：
-  py -3 scripts/build.py                 # 默认同时构建目录版和单文件版
-  py -3 scripts/build.py --mode onedir   # 仅构建目录版（启动快、误报少）
-  py -3 scripts/build.py --mode onefile  # 仅构建单文件版（免解压即用）
-  py -3 scripts/build.py --check-tag v1.0.0   # 校验 tag 与 __version__ 一致（CI 用）
+  python scripts/build.py                    # 构建当前平台发行包（Windows: .exe / macOS: .dmg）
+  python scripts/build.py --check-tag v1.0.0 # 校验 tag 与 __version__ 一致（CI 用）
 """
 
 from __future__ import annotations
@@ -18,7 +16,6 @@ import re
 import shutil
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,7 +24,9 @@ BUILD = ROOT / "build"
 ASSETS = ROOT / "aglauncher" / "assets"
 
 APP_NAME = "AntigravityLauncher"
+DISPLAY_NAME = "Antigravity Launcher"
 CLI_NAME = "aglaunch"
+MAC_BUNDLE_ID = "io.github.geekwaner.antigravity-launcher"
 
 # 避免在包含大量数据分析/AI 包的全局环境里被 PyInstaller 误卷入无关模块
 EXCLUDED_MODULES = (
@@ -43,9 +42,15 @@ def read_version() -> str:
     return m.group(1) if m else "1.0.0"
 
 
+def arch_name(machine: str | None = None) -> str:
+    raw = (machine if machine is not None else platform.machine()).lower()
+    if "arm" in raw or "aarch64" in raw:
+        return "arm64"
+    return "x64"
+
+
 def platform_tag() -> str:
-    machine = platform.machine().lower()
-    arch = "arm64" if "arm" in machine or "aarch64" in machine else "x64"
+    arch = arch_name()
     if sys.platform.startswith("win"):
         return f"win-{arch}"
     if sys.platform == "darwin":
@@ -53,16 +58,11 @@ def platform_tag() -> str:
     return f"linux-{arch}"
 
 
-def write_win_version_file(path: Path, version: str, internal_name: str, is_cli: bool = False) -> None:
+def write_win_version_file(path: Path, version: str, internal_name: str) -> None:
     nums = [int(x) for x in (version.split(".") + ["0", "0", "0", "0"])[:4] if x.isdigit()]
     while len(nums) < 4:
         nums.append(0)
     ver_tuple = tuple(nums)
-    desc = (
-        "Antigravity Launcher CLI (Process-level proxy injector)"
-        if is_cli
-        else "Process-level proxy launcher for Google Antigravity"
-    )
     content = f"""# UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
@@ -81,12 +81,12 @@ VSVersionInfo(
         '040904B0',
         [
           StringStruct('CompanyName', 'Antigravity Launcher Contributors'),
-          StringStruct('FileDescription', '{desc}'),
+          StringStruct('FileDescription', 'Process-level proxy launcher for Google Antigravity'),
           StringStruct('FileVersion', '{version}'),
           StringStruct('InternalName', '{internal_name}'),
           StringStruct('LegalCopyright', 'MIT License'),
           StringStruct('OriginalFilename', '{internal_name}.exe'),
-          StringStruct('ProductName', 'Antigravity Launcher'),
+          StringStruct('ProductName', '{DISPLAY_NAME}'),
           StringStruct('ProductVersion', '{version}')
         ]
       )
@@ -106,7 +106,9 @@ def run_pyinstaller(
     windowed: bool,
     work_dir: Path,
     dist_dir: Path,
-    version_file: Path | None,
+    version_file: Path | None = None,
+    icon_file: Path | None = None,
+    bundle_id: str | None = None,
 ) -> None:
     sep = ";" if os.name == "nt" else ":"
     cmd = [
@@ -126,13 +128,19 @@ def run_pyinstaller(
 
     ico = ASSETS / "icon.ico"
     png = ASSETS / "icon.png"
-    if sys.platform.startswith("win") and ico.is_file():
+    if icon_file and icon_file.is_file():
+        cmd.extend(["--icon", str(icon_file)])
+    elif sys.platform.startswith("win") and ico.is_file():
         cmd.extend(["--icon", str(ico)])
+
+    if sys.platform.startswith("win") and ico.is_file():
         cmd.extend(["--add-data", f"{ico}{sep}assets"])
     if png.is_file():
         cmd.extend(["--add-data", f"{png}{sep}assets"])
     if version_file and sys.platform.startswith("win"):
         cmd.extend(["--version-file", str(version_file)])
+    if bundle_id and sys.platform == "darwin":
+        cmd.extend(["--osx-bundle-identifier", bundle_id])
 
     for mod in EXCLUDED_MODULES:
         cmd.extend(["--exclude-module", mod])
@@ -140,16 +148,6 @@ def run_pyinstaller(
     cmd.append(str(ROOT / "aglaunch.py"))
     print("+", " ".join(cmd))
     subprocess.run(cmd, check=True, cwd=str(ROOT))
-
-
-def zip_directory(src_dir: Path, zip_path: Path) -> None:
-    if zip_path.exists():
-        zip_path.unlink()
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for file in sorted(src_dir.rglob("*")):
-            if file.is_file():
-                arcname = Path(src_dir.name) / file.relative_to(src_dir)
-                zf.write(file, arcname)
 
 
 def sha256_file(path: Path) -> str:
@@ -160,58 +158,17 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def build_onedir(version: str, tag: str) -> Path:
-    stage = BUILD / "onedir_dist"
-    shutil.rmtree(stage, ignore_errors=True)
-    ver_gui = BUILD / "version_gui.txt"
-    ver_cli = BUILD / "version_cli.txt"
-    if sys.platform.startswith("win"):
-        write_win_version_file(ver_gui, version, APP_NAME, is_cli=False)
-        write_win_version_file(ver_cli, version, CLI_NAME, is_cli=True)
-
-    # 1) 无黑框 GUI 主程序
-    run_pyinstaller(
-        name=APP_NAME,
-        mode_flag="--onedir",
-        windowed=True,
-        work_dir=BUILD / "work_onedir_gui",
-        dist_dir=stage,
-        version_file=ver_gui if sys.platform.startswith("win") else None,
-    )
-
-    bundle_dir = stage / APP_NAME
-    # 2) 同目录下额外放一个原生控制台入口 aglaunch.exe，共享同一份 _internal 运行时（仅增加几 MB 引导壳）
-    cli_stage = BUILD / "onedir_cli_dist"
-    shutil.rmtree(cli_stage, ignore_errors=True)
-    run_pyinstaller(
-        name=CLI_NAME,
-        mode_flag="--onedir",
-        windowed=False,
-        work_dir=BUILD / "work_onedir_cli",
-        dist_dir=cli_stage,
-        version_file=ver_cli if sys.platform.startswith("win") else None,
-    )
-    cli_bin = cli_stage / CLI_NAME / (f"{CLI_NAME}.exe" if os.name == "nt" else CLI_NAME)
-    if cli_bin.is_file():
-        shutil.copy2(cli_bin, bundle_dir / cli_bin.name)
-
-    for doc in ("README.md", "README_EN.md", "CHANGELOG.md", "LICENSE"):
-        src = ROOT / doc
-        if src.is_file():
-            shutil.copy2(src, bundle_dir / doc)
-
-    DIST.mkdir(parents=True, exist_ok=True)
-    archive = DIST / f"{APP_NAME}-{version}-{tag}-portable.zip"
-    zip_directory(bundle_dir, archive)
-    return archive
-
+# --------------------------------------------------------------------------- #
+# Windows 单文件打包
+# --------------------------------------------------------------------------- #
 
 def build_onefile(version: str, tag: str) -> Path:
+    """构建 Windows 单文件版（standalone.exe）。"""
     stage = BUILD / "onefile_dist"
     shutil.rmtree(stage, ignore_errors=True)
     ver_gui = BUILD / "version_onefile.txt"
     if sys.platform.startswith("win"):
-        write_win_version_file(ver_gui, version, APP_NAME, is_cli=False)
+        write_win_version_file(ver_gui, version, APP_NAME)
 
     run_pyinstaller(
         name=APP_NAME,
@@ -230,14 +187,114 @@ def build_onefile(version: str, tag: str) -> Path:
     return target
 
 
+# --------------------------------------------------------------------------- #
+# macOS Apple Silicon 打包（.app -> .dmg）
+# --------------------------------------------------------------------------- #
+
+def make_macos_icns(png_path: Path, out_icns: Path) -> Path | None:
+    """使用 macOS 内置 sips + iconutil 从 icon.png 生成标准多尺寸 .icns。"""
+    if not png_path.is_file():
+        return None
+    if not shutil.which("sips") or not shutil.which("iconutil"):
+        return None
+
+    iconset = BUILD / "icon.iconset"
+    shutil.rmtree(iconset, ignore_errors=True)
+    iconset.mkdir(parents=True, exist_ok=True)
+    specs = (
+        ("icon_16x16.png", 16),
+        ("icon_16x16@2x.png", 32),
+        ("icon_32x32.png", 32),
+        ("icon_32x32@2x.png", 64),
+        ("icon_128x128.png", 128),
+        ("icon_128x128@2x.png", 256),
+        ("icon_256x256.png", 256),
+        ("icon_256x256@2x.png", 512),
+        ("icon_512x512.png", 512),
+    )
+    for filename, px in specs:
+        subprocess.run(
+            ["sips", "-z", str(px), str(px), str(png_path), "--out", str(iconset / filename)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    out_icns.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(out_icns)], check=True)
+    return out_icns if out_icns.is_file() else None
+
+
+def build_macos_dmg(version: str, tag: str) -> Path:
+    """构建 macOS .app 应用包并封装为标准拖拽安装 .dmg。"""
+    stage = BUILD / "macos_dist"
+    shutil.rmtree(stage, ignore_errors=True)
+    icns = make_macos_icns(ASSETS / "icon.png", BUILD / "icon.icns")
+
+    run_pyinstaller(
+        name=APP_NAME,
+        mode_flag="--onedir",
+        windowed=True,
+        work_dir=BUILD / "work_macos",
+        dist_dir=stage,
+        icon_file=icns,
+        bundle_id=MAC_BUNDLE_ID,
+    )
+
+    app_bundle = stage / f"{APP_NAME}.app"
+    if not app_bundle.is_dir():
+        raise FileNotFoundError(f"Expected macOS app bundle not found: {app_bundle}")
+
+    plist_path = app_bundle / "Contents" / "Info.plist"
+    if plist_path.is_file():
+        import plistlib
+
+        with plist_path.open("rb") as fh:
+            meta = plistlib.load(fh)
+        meta["CFBundleShortVersionString"] = version
+        meta["CFBundleVersion"] = version
+        meta["CFBundleDisplayName"] = DISPLAY_NAME
+        with plist_path.open("wb") as fh:
+            plistlib.dump(meta, fh)
+
+    macos_dir = app_bundle / "Contents" / "MacOS"
+    cli_link = macos_dir / CLI_NAME
+    if cli_link.exists() or cli_link.is_symlink():
+        cli_link.unlink()
+    os.symlink(APP_NAME, cli_link)
+
+    if shutil.which("codesign"):
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app_bundle)], check=True)
+
+    dmg_stage = BUILD / "macos_dmg_stage"
+    shutil.rmtree(dmg_stage, ignore_errors=True)
+    dmg_stage.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["ditto", str(app_bundle), str(dmg_stage / app_bundle.name)], check=True)
+    os.symlink("/Applications", dmg_stage / "Applications")
+
+    DIST.mkdir(parents=True, exist_ok=True)
+    dmg_path = DIST / f"{APP_NAME}-{version}-{tag}.dmg"
+    if dmg_path.exists():
+        dmg_path.unlink()
+    subprocess.run(
+        [
+            "hdiutil", "create",
+            "-volname", DISPLAY_NAME,
+            "-srcfolder", str(dmg_stage),
+            "-ov",
+            "-format", "UDZO",
+            str(dmg_path),
+        ],
+        check=True,
+    )
+    return dmg_path
+
+
+# --------------------------------------------------------------------------- #
+# 入口
+# --------------------------------------------------------------------------- #
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build Antigravity Launcher release artifacts.")
-    parser.add_argument(
-        "--mode",
-        choices=("all", "onedir", "onefile"),
-        default="all",
-        help="Build mode: all (default), onedir (.zip), or onefile (.exe)",
-    )
     parser.add_argument(
         "--check-tag",
         metavar="TAG",
@@ -261,25 +318,26 @@ def main(argv: list[str] | None = None) -> int:
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
-        print("PyInstaller is not installed. Run: py -3 -m pip install pyinstaller", file=sys.stderr)
+        print("PyInstaller is not installed. Run: python -m pip install pyinstaller", file=sys.stderr)
         return 1
 
     version = read_version()
     tag = platform_tag()
-    artifacts: list[Path] = []
 
-    if args.mode in ("all", "onedir"):
-        artifacts.append(build_onedir(version, tag))
-    if args.mode in ("all", "onefile"):
-        artifacts.append(build_onefile(version, tag))
+    if sys.platform.startswith("win"):
+        artifact = build_onefile(version, tag)
+    elif sys.platform == "darwin":
+        artifact = build_macos_dmg(version, tag)
+    else:
+        print("Prebuilt packaging is configured for Windows and macOS only; run from source on Linux.", file=sys.stderr)
+        return 1
 
     sums_file = DIST / "SHA256SUMS.txt"
-    lines = [f"{sha256_file(p)}  {p.name}" for p in artifacts]
-    sums_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    line = f"{sha256_file(artifact)}  {artifact.name}"
+    sums_file.write_text(line + "\n", encoding="utf-8")
 
-    print("\nBuilt release artifacts:")
-    for line in lines:
-        print(" ", line)
+    print("\nBuilt release artifact:")
+    print(" ", line)
     return 0
 
 
