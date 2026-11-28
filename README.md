@@ -230,7 +230,7 @@ antigravity-launcher/
 ```bash
 python -m pip install pyinstaller
 python scripts/build.py                      # Windows: standalone.exe | macOS: .dmg
-python scripts/build.py --check-tag v1.1.0   # 发版前校验 tag 与 __version__ 是否一致
+python scripts/build.py --check-tag v1.1.1   # 发版前校验 tag 与 __version__ 是否一致
 ```
 
 推送 `v*` 标签会自动触发 [release.yml](.github/workflows/release.yml) 在 GitHub Actions 中完成版本校验、测试、Windows x64 单文件版与 macOS Apple Silicon `.dmg` 构建与 Release 发布；也支持在 GitHub Actions 页面手动点击 **Run workflow** 进行不发布的试打包验证。

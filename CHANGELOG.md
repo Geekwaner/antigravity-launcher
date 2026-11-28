@@ -6,6 +6,23 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-28
+
+系统代理读取与进程识别的兼容性修复。
+
+### 变更
+
+- `language_server` 识别兼容带架构后缀的可执行文件（如 `language_server_windows_x64.exe`、
+  `language_server_macos_arm`），并排除 `.log` / `.pdb` / `.dll` 等非可执行文件。
+- 客户端进程名改为精确匹配 `antigravity` / `antigravity.exe`，避免误认启动器自身进程。
+
+### 修复
+
+- macOS `scutil` 与 Linux `gsettings` 读取系统代理时保留真实主机地址，支持局域网 IP 与 IPv6，
+  并补充 PAC 自动配置与 `mode=none` 提示。
+- IPv6 代理地址按 RFC 3986 自动补方括号，修复 `HTTP_PROXY` / `ALL_PROXY` / `--proxy-server`
+  生成非法 URL 的问题。
+
 ## [1.1.0] - 2026-11-27
 
 新增预编译发行包，发布流程现在会在同一个 Release 中提供两个平台的安装包。
@@ -57,6 +74,7 @@
 - 终止进程前二次确认，优先发送 `WM_CLOSE`。
 - 除主动触发的网络诊断外，不发起任何对外数据请求。
 
-[Unreleased]: https://github.com/Geekwaner/antigravity-launcher/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Geekwaner/antigravity-launcher/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Geekwaner/antigravity-launcher/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Geekwaner/antigravity-launcher/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Geekwaner/antigravity-launcher/releases/tag/v1.0.0

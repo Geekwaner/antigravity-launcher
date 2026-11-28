@@ -230,7 +230,7 @@ Only stores launcher-specific settings (client path, manual proxy, probe paramet
 ```bash
 python -m pip install pyinstaller
 python scripts/build.py                      # Windows: standalone.exe | macOS: .dmg
-python scripts/build.py --check-tag v1.1.0   # verify tag matches __version__ before releasing
+python scripts/build.py --check-tag v1.1.1   # verify tag matches __version__ before releasing
 ```
 
 Pushing a `v*` tag triggers [release.yml](.github/workflows/release.yml) in GitHub Actions to validate the version tag, run tests, build the Windows x64 standalone `.exe` and macOS Apple Silicon `.dmg`, and publish the GitHub Release. You can also trigger **Run workflow** manually in GitHub Actions to dry-run the build without publishing.
