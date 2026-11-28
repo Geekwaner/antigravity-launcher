@@ -266,6 +266,27 @@ class TestLauncherAndClient(unittest.TestCase):
         self.assertIn("***:***@127.0.0.1:7897", cmds["powershell"])
         self.assertIn("export HTTP_PROXY=", cmds["bash"])
 
+    def test_build_plan_brackets_ipv6_host(self) -> None:
+        ep = proxy.EndpointReport(
+            host="::1",
+            port=7897,
+            proto_http=True,
+            proto_socks=True,
+            login=proxy.Channel("login", "登录端点", proxy.LOGIN_HOST, ok=True, proto="http"),
+            model=proxy.Channel("model", "模型端点", proxy.MODEL_HOST, ok=True, proto="socks5"),
+        )
+        self.assertEqual(ep.addr, "[::1]:7897")
+
+        plan = launcher.build_plan(ep)
+        self.assertEqual(plan.env["HTTP_PROXY"], "http://[::1]:7897")
+        self.assertEqual(plan.env["ALL_PROXY"], "socks5://[::1]:7897")
+        self.assertEqual(plan.argv, ["--proxy-server=http://[::1]:7897"])
+
+        auth_plan = launcher.build_plan(ep, user="u", pwd="p")
+        self.assertEqual(auth_plan.env["HTTP_PROXY"], "http://u:p@[::1]:7897")
+        self.assertEqual(auth_plan.env["ALL_PROXY"], "socks5://u:p@[::1]:7897")
+        self.assertEqual(auth_plan.argv, [])
+
     def test_cli_parser_new_flags(self) -> None:
         parser = cli.build_parser()
         args = parser.parse_args(["--doctor", "--diag", "--no-preflight", "--json"])

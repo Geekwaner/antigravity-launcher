@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .client import Client
-from .proxy import EndpointReport
+from .proxy import EndpointReport, format_host_port
 
 NO_PROXY_VALUE = "localhost,127.0.0.1,::1"
 
@@ -64,7 +64,7 @@ def build_plan(
         raise ValueError("代理未通过校验，拒绝构建启动计划")
 
     auth = _auth_segment(user, pwd)
-    netloc = f"{auth}{report.host}:{report.port}"
+    netloc = f"{auth}{format_host_port(report.host, report.port)}"
     http_url = f"http://{netloc}"
     socks_url = f"socks5://{netloc}"
 

@@ -80,6 +80,13 @@ class Channel:
     ms: int | None = None
 
 
+def format_host_port(host: str, port: int) -> str:
+    """按 RFC 3986 拼接 host:port，IPv6 字面量自动补上方括号。"""
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        return f"[{host}]:{port}"
+    return f"{host}:{port}"
+
+
 @dataclass
 class EndpointReport:
     host: str
@@ -112,7 +119,7 @@ class EndpointReport:
 
     @property
     def addr(self) -> str:
-        return f"{self.host}:{self.port}"
+        return format_host_port(self.host, self.port)
 
     def channels(self) -> list[Channel]:
         return [c for c in (self.login, self.model) if c is not None]
