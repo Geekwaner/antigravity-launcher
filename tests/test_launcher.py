@@ -136,6 +136,69 @@ class TestProxyParsingAndAuth(unittest.TestCase):
         finally:
             srv.close()
 
+    def test_parse_scutil_proxy_preserves_remote_host_and_pac(self) -> None:
+        sample = """
+        <dictionary> {
+          HTTPEnable : 1
+          HTTPPort : 7897
+          HTTPProxy : 192.168.1.50
+          HTTPSEnable : 0
+          HTTPSPort : 7897
+          HTTPSProxy : 192.168.1.50
+          SOCKSEnable : 1
+          SOCKSPort : 1080
+          SOCKSProxy : [::1]
+          ProxyAutoConfigEnable : 1
+          ProxyAutoConfigURLString : http://192.168.1.50/proxy.pac
+        }
+        """
+        cands, notes = proxy._parse_scutil_proxy(sample)
+        self.assertEqual(
+            [(c.host, c.port, c.origin) for c in cands],
+            [
+                ("192.168.1.50", 7897, "系统代理(HTTP)"),
+                ("::1", 1080, "系统代理(SOCKS)"),
+            ],
+        )
+        self.assertTrue(any("PAC" in n and "proxy.pac" in n for n in notes))
+
+    def test_linux_gsettings_proxy_reads_host_and_mode(self) -> None:
+        manual_cfg = {
+            ("org.gnome.system.proxy", "mode"): "'manual'",
+            ("org.gnome.system.proxy.http", "host"): "'10.0.0.8'",
+            ("org.gnome.system.proxy.http", "port"): "8080",
+            ("org.gnome.system.proxy.https", "host"): "''",
+            ("org.gnome.system.proxy.https", "port"): "7897",
+            ("org.gnome.system.proxy.socks", "host"): "'192.168.2.2'",
+            ("org.gnome.system.proxy.socks", "port"): "0",
+        }
+        cands, notes = proxy._linux_gsettings_proxy(lambda s, k: manual_cfg.get((s, k), ""))
+        self.assertEqual(
+            [(c.host, c.port, c.origin) for c in cands],
+            [
+                ("10.0.0.8", 8080, "系统代理(HTTP)"),
+                ("127.0.0.1", 7897, "系统代理(HTTPS)"),
+            ],
+        )
+        self.assertEqual(notes, [])
+
+        auto_cfg = {
+            ("org.gnome.system.proxy", "mode"): "'auto'",
+            ("org.gnome.system.proxy", "autoconfig-url"): "'http://10.0.0.8/wpad.dat'",
+        }
+        cands2, notes2 = proxy._linux_gsettings_proxy(lambda s, k: auto_cfg.get((s, k), ""))
+        self.assertEqual(cands2, [])
+        self.assertTrue(any("wpad.dat" in n for n in notes2))
+
+        disabled_cfg = {
+            ("org.gnome.system.proxy", "mode"): "'none'",
+            ("org.gnome.system.proxy.http", "host"): "'10.0.0.9'",
+            ("org.gnome.system.proxy.http", "port"): "7890",
+        }
+        cands3, notes3 = proxy._linux_gsettings_proxy(lambda s, k: disabled_cfg.get((s, k), ""))
+        self.assertEqual([(c.host, c.port, c.origin) for c in cands3], [("10.0.0.9", 7890, "系统代理(HTTP)(未启用)")])
+        self.assertTrue(any("mode=none" in n for n in notes3))
+
 
 class TestProcsAndTree(unittest.TestCase):
     def test_split_running_recognizes_own_and_descendant_ls(self) -> None:
@@ -167,6 +230,20 @@ class TestProcsAndTree(unittest.TestCase):
             res = procs.wait_for_tree(9999, timeout=10.0, poll=0.05, popen=fake_popen)
         self.assertIsNone(res.server)
         self.assertEqual(res.early_exit_code, 0)
+
+    def test_find_residuals_matches_suffixed_language_server_and_ignores_launcher(self) -> None:
+        ls_suffixed = "language_server_windows_x64.exe" if os.name == "nt" else "language_server_macos_arm"
+        launcher_name = "AntigravityLauncher.exe" if os.name == "nt" else "AntigravityLauncher"
+        table = [
+            procs.ProcInfo(pid=300, ppid=1, name=ls_suffixed, exe=f"/AG/{ls_suffixed}", created=10.0),
+            procs.ProcInfo(pid=301, ppid=1, name=launcher_name, exe=f"/AG/{launcher_name}", created=10.0),
+            procs.ProcInfo(pid=302, ppid=1, name="language_serverx.exe", exe="/AG/x.exe", created=10.0),
+        ]
+        found = procs.find_residuals(table)
+        self.assertEqual([p.pid for p in found], [300])
+        self.assertTrue(found[0].is_language_server)
+        self.assertFalse(table[1].is_client)
+        self.assertFalse(table[2].is_language_server)
 
 
 class TestLauncherAndClient(unittest.TestCase):
@@ -209,6 +286,30 @@ class TestLauncherAndClient(unittest.TestCase):
         self.assertIsNotNone(found)
         assert found is not None
         self.assertEqual(found.source, "PATH")
+
+    def test_language_server_for_accepts_suffixed_binary_and_ignores_logs(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exe = root / ("Antigravity.exe" if os.name == "nt" else "Antigravity")
+            exe.write_bytes(b"")
+            bin_dir = root / "resources" / "bin"
+            bin_dir.mkdir(parents=True)
+            # 非二进制日志/符号文件必须忽略
+            (bin_dir / "language_server.log").write_text("log", encoding="utf-8")
+            (bin_dir / "language_server.pdb").write_bytes(b"")
+            self.assertIsNone(client.language_server_for(exe))
+
+            # 带架构后缀的二进制应被识别
+            suffixed = bin_dir / ("language_server_windows_x64.exe" if os.name == "nt" else "language_server_macos_arm")
+            suffixed.write_bytes(b"bin")
+            self.assertEqual(client.language_server_for(exe), suffixed)
+
+            # 若同时存在标准文件名，优先命中标准文件名
+            exact = bin_dir / ("language_server.exe" if os.name == "nt" else "language_server")
+            exact.write_bytes(b"bin")
+            self.assertEqual(client.language_server_for(exe), exact)
 
 
 class TestCoreInspect(unittest.TestCase):

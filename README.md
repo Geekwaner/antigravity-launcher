@@ -180,7 +180,7 @@ py -3 aglaunch.py --launch --proxy socks5://127.0.0.1:1080
 </details>
 
 - **DPI 与窗口尺寸**：基于 `tkinter`，默认窗口尺寸 `980×880`（最小 `920×780`），出现残留实例警示条时会自动向下扩展高度（上限为屏幕高度减 90px）。
-- **进程名识别**：桌面端识别 `Antigravity` / `Antigravity.exe` 与 `language_server` / `language_server.exe`；若官方后续变更可执行文件名需同步调整。
+- **进程名识别**：桌面端识别 `Antigravity` / `Antigravity.exe` 及 `language_server*`（兼容带架构后缀的网关可执行文件）；若官方变更主程序名称需同步调整。
 - **PAC 限制**：暂不支持解析 PAC 自动配置脚本中的代理规则。
 
 ---

@@ -36,21 +36,57 @@ class CliTool:
     source: str
 
 
+_LS_PREFIX = "language_server"
+_NON_LS_SUFFIXES = frozenset({
+    ".log", ".txt", ".json", ".md", ".yml", ".yaml", ".conf", ".cfg",
+    ".map", ".pdb", ".dll", ".so", ".dylib", ".sh", ".bat", ".cmd",
+})
+
+
 def _ls_filename() -> str:
     return "language_server.exe" if os.name == "nt" else "language_server"
 
 
+def _is_ls_binary(path: Path, is_win: bool | None = None) -> bool:
+    """判断文件名是否为 language_server 可执行文件（兼容带架构后缀的命名）。"""
+    win = (os.name == "nt") if is_win is None else is_win
+    low = path.name.lower()
+    if not low.startswith(_LS_PREFIX):
+        return False
+    rest = low[len(_LS_PREFIX):]
+    if rest and rest[0] not in (".", "_", "-"):
+        return False
+    if win:
+        return path.suffix.lower() == ".exe"
+    return path.suffix.lower() not in _NON_LS_SUFFIXES
+
+
 def language_server_for(exe: Path) -> Path | None:
-    """客户端根目录下必须存在 resources/bin/language_server，才算认对了。"""
+    """客户端根目录下必须存在 resources/bin/language_server* 可执行文件，才算认对了。"""
     ls_name = _ls_filename()
-    candidates = [
-        exe.parent / "resources" / "bin" / ls_name,
-        # macOS .app: Contents/MacOS/<exec> -> Contents/Resources/bin/language_server
-        exe.parent.parent / "Resources" / "bin" / ls_name,
-    ]
-    for cand in candidates:
-        if cand.is_file():
-            return cand
+    bin_dirs = (
+        exe.parent / "resources" / "bin",
+        # macOS .app: Contents/MacOS/<exec> -> Contents/Resources/bin/language_server*
+        exe.parent.parent / "Resources" / "bin",
+    )
+    for bin_dir in bin_dirs:
+        exact = bin_dir / ls_name
+        if exact.is_file():
+            return exact
+        if not bin_dir.is_dir():
+            continue
+        try:
+            matches = [p for p in sorted(bin_dir.iterdir()) if p.is_file() and _is_ls_binary(p)]
+        except OSError:
+            continue
+        if not matches:
+            continue
+        if os.name != "nt":
+            # POSIX 下优先挑带可执行权限的二进制
+            exec_matches = [p for p in matches if os.access(p, os.X_OK)]
+            if exec_matches:
+                return exec_matches[0]
+        return matches[0]
     return None
 
 

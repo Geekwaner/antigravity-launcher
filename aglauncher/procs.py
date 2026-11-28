@@ -22,6 +22,23 @@ TARGET_NAMES = {
     "linux": ("antigravity", "language_server"),
 }
 
+_CLIENT_NAMES = frozenset({"antigravity", "antigravity.exe"})
+
+
+def is_language_server_name(name: str, *, is_win: bool | None = None) -> bool:
+    """兼容 language_server / language_server.exe 及带架构后缀（如 language_server_windows_x64.exe）。"""
+    low = (name or "").strip().lower()
+    if not low.startswith(CODENAME):
+        return False
+    rest = low[len(CODENAME):]
+    if rest and rest[0] not in (".", "_", "-"):
+        return False
+    if is_win is True:
+        return low.endswith(".exe")
+    if is_win is False:
+        return not low.endswith(".exe")
+    return True
+
 
 @dataclass
 class ProcInfo:
@@ -33,11 +50,11 @@ class ProcInfo:
 
     @property
     def is_language_server(self) -> bool:
-        return self.name.lower().startswith(CODENAME)
+        return is_language_server_name(self.name)
 
     @property
     def is_client(self) -> bool:
-        return self.name.lower().startswith("antigravity")
+        return self.name.lower() in _CLIENT_NAMES
 
     @property
     def label(self) -> str:
@@ -50,6 +67,10 @@ def _names() -> tuple[str, ...]:
     if sys.platform == "darwin":
         return TARGET_NAMES["darwin"]
     return TARGET_NAMES["linux"]
+
+
+def _client_name() -> str:
+    return "antigravity.exe" if sys.platform.startswith("win") else "antigravity"
 
 
 # --------------------------------------------------------------------------- #
@@ -270,9 +291,18 @@ def snapshot() -> list[ProcInfo]:
 
 def find_residuals(table: list[ProcInfo] | None = None) -> list[ProcInfo]:
     procs = table if table is not None else snapshot()
-    names = _names()
+    client_name = _client_name()
+    is_win = sys.platform.startswith("win")
     self_pid = os.getpid()
-    return [p for p in procs if p.pid != self_pid and p.name.lower() in names]
+    return [
+        p
+        for p in procs
+        if p.pid != self_pid
+        and (
+            p.name.lower() == client_name
+            or is_language_server_name(p.name, is_win=is_win)
+        )
+    ]
 
 
 def is_launched_by_us(proc: ProcInfo, record: dict | None) -> bool:

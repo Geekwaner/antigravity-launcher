@@ -180,7 +180,7 @@ py -3 aglaunch.py --launch --proxy socks5://127.0.0.1:1080
 </details>
 
 - **DPI & window geometry**: Built with `tkinter`, defaulting to `980×880` (`920×780` minimum) and expanding vertically if the leftover-instance warning appears (capped at screen height minus 90 px).
-- **Process names**: Matches `Antigravity` / `Antigravity.exe` and `language_server` / `language_server.exe`; upstream binary renames require corresponding updates.
+- **Process names**: Matches `Antigravity` / `Antigravity.exe` and `language_server*` (including architecture-suffixed variants); upstream main binary renames require corresponding updates.
 - **PAC limitation**: Proxy rules inside PAC auto-config scripts cannot be evaluated statically.
 
 ---

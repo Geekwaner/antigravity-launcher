@@ -168,6 +168,98 @@ def _host_port(raw: str) -> tuple[str, int] | None:
         return None
 
 
+def _clean_proxy_host(raw: str | None) -> str:
+    """清理系统代理返回的主机字符串（去除 gsettings 引号、协议前缀、IPv6 方括号等）。"""
+    text = (raw or "").strip().strip("'").strip('"').strip()
+    if not text:
+        return ""
+    if "://" in text:
+        text = text.split("://", 1)[1]
+    text = text.split("/", 1)[0].strip()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1].strip()
+    return text
+
+
+def _parse_scutil_proxy(out: str) -> tuple[list[Candidate], list[str]]:
+    """解析 macOS `scutil --proxy` 输出，保留真实代理主机与 PAC 提示。"""
+    cands: list[Candidate] = []
+    notes: list[str] = []
+    info: dict[str, str] = {}
+    for line in (out or "").splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            info[k.strip()] = v.strip()
+
+    if info.get("ProxyAutoConfigEnable") == "1":
+        pac = info.get("ProxyAutoConfigURLString") or ""
+        if pac:
+            notes.append(f"系统启用了 PAC 自动配置（{pac}），PAC 里的代理无法静态读取")
+
+    for enable_key, host_key, port_key, origin in (
+        ("HTTPEnable", "HTTPProxy", "HTTPPort", "系统代理(HTTP)"),
+        ("HTTPSEnable", "HTTPSProxy", "HTTPSPort", "系统代理(HTTPS)"),
+        ("SOCKSEnable", "SOCKSProxy", "SOCKSPort", "系统代理(SOCKS)"),
+    ):
+        port_raw = (info.get(port_key) or "").strip()
+        if info.get(enable_key) == "1" and port_raw.isdigit() and int(port_raw) > 0:
+            host = _clean_proxy_host(info.get(host_key)) or "127.0.0.1"
+            cands.append(Candidate(host, int(port_raw), origin))
+
+    return cands, notes
+
+
+def _linux_gsettings_proxy(
+    get_value: Callable[[str, str], str] | None = None,
+) -> tuple[list[Candidate], list[str]]:
+    """读取 Linux GNOME `gsettings` 系统代理配置（含真实 host 与 mode/PAC 识别）。"""
+    import subprocess
+
+    def _read(schema: str, key: str) -> str:
+        if get_value is not None:
+            return get_value(schema, key)
+        res = subprocess.run(
+            ["gsettings", "get", schema, key], capture_output=True, text=True, timeout=4
+        )
+        return res.stdout.strip() if res.returncode == 0 else ""
+
+    cands: list[Candidate] = []
+    notes: list[str] = []
+    mode = ""
+    try:
+        mode = _read("org.gnome.system.proxy", "mode").strip().strip("'").strip('"').lower()
+    except Exception:  # noqa: BLE001
+        mode = ""
+
+    if mode == "auto":
+        try:
+            pac = _read("org.gnome.system.proxy", "autoconfig-url").strip().strip("'").strip('"')
+        except Exception:  # noqa: BLE001
+            pac = ""
+        if pac:
+            notes.append(f"系统启用了 PAC 自动配置（{pac}），PAC 里的代理无法静态读取")
+
+    disabled_suffix = "(未启用)" if mode == "none" else ""
+    for schema, origin in (
+        ("org.gnome.system.proxy.http", "系统代理(HTTP)"),
+        ("org.gnome.system.proxy.https", "系统代理(HTTPS)"),
+        ("org.gnome.system.proxy.socks", "系统代理(SOCKS)"),
+    ):
+        try:
+            port_raw = _read(schema, "port").strip()
+            if not (port_raw.isdigit() and int(port_raw) > 0):
+                continue
+            host = _clean_proxy_host(_read(schema, "host")) or "127.0.0.1"
+            cands.append(Candidate(host, int(port_raw), origin + disabled_suffix))
+        except Exception:  # noqa: BLE001
+            pass
+
+    if mode == "none" and cands:
+        notes.append("系统代理已关闭（mode=none），但残留了地址配置，仍作为候选探测")
+
+    return cands, notes
+
+
 def system_proxy_candidates() -> tuple[list[Candidate], list[str]]:
     """读操作系统的系统代理设置。Windows 读注册表，macOS 读 scutil，Linux 读 gsettings。"""
     notes: list[str] = []
@@ -207,36 +299,16 @@ def system_proxy_candidates() -> tuple[list[Candidate], list[str]]:
             out = subprocess.run(
                 ["scutil", "--proxy"], capture_output=True, text=True, timeout=5
             ).stdout
-            info: dict[str, str] = {}
-            for line in out.splitlines():
-                if ":" in line:
-                    k, v = line.split(":", 1)
-                    info[k.strip()] = v.strip()
-            if info.get("HTTPEnable") == "1" and info.get("HTTPPort"):
-                cands.append(Candidate("127.0.0.1", int(info["HTTPPort"]), "系统代理(HTTP)"))
-            if info.get("HTTPSEnable") == "1" and info.get("HTTPSPort"):
-                cands.append(Candidate("127.0.0.1", int(info["HTTPSPort"]), "系统代理(HTTPS)"))
-            if info.get("SOCKSEnable") == "1" and info.get("SOCKSPort"):
-                cands.append(Candidate("127.0.0.1", int(info["SOCKSPort"]), "系统代理(SOCKS)"))
+            sc_cands, sc_notes = _parse_scutil_proxy(out)
+            cands.extend(sc_cands)
+            notes.extend(sc_notes)
         except Exception as exc:  # noqa: BLE001
             notes.append(f"读取 scutil 代理失败：{exc}")
 
     else:
-        import subprocess
-
-        for schema, key, origin in (
-            ("org.gnome.system.proxy.http", "port", "系统代理(HTTP)"),
-            ("org.gnome.system.proxy.https", "port", "系统代理(HTTPS)"),
-            ("org.gnome.system.proxy.socks", "port", "系统代理(SOCKS)"),
-        ):
-            try:
-                port = subprocess.run(
-                    ["gsettings", "get", schema, key], capture_output=True, text=True, timeout=4
-                ).stdout.strip()
-                if port.isdigit() and int(port) > 0:
-                    cands.append(Candidate("127.0.0.1", int(port), origin))
-            except Exception:  # noqa: BLE001
-                pass
+        g_cands, g_notes = _linux_gsettings_proxy()
+        cands.extend(g_cands)
+        notes.extend(g_notes)
 
     return cands, notes
 
